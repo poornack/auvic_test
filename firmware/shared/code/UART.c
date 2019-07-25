@@ -1,214 +1,123 @@
 /*
- * UART.c
+ * simple_UART.c
  *
- *  Created on: Aug 13, 2018
- *      Author: Poornachander
+ *  Created on: Aug 19, 2017
+ *      Author: abates
  */
-#include <string.h>
 
-#include "stm32f4xx.h"
-
-#include "FreeRTOS.h"
-#include "Task.h"
 
 #include "UART.h"
 
-/* UART DEFINES*/
-#define UART_TO_USE			(USART1) //Example: USART1 or USART2. Has to match define from ST Library
-#define GPIO_PORT_TO_USE 	(GPIOB) //Example: GPIOA or GPIOB. Has to match define from ST Library
-#define TX_PIN_TO_USE		(6) // 0 to 15. Example 1 or 2.
-#define RX_PIN_TO_USE		(7) // 0 to 15. Example 1 or 2.
-#define BAUD_RATE			(9600)
-#define DMA					(DMA2) // Only the DMA controller. Either DMA1 or DMA2
-#define DMA_STREAM			(DMA2_Stream2) //Has to be DMA Stream typedef Example: DMA2_Stream2, DMA1_Stream4
-
+#include "stm32f4xx.h"
+#include "FreeRTOS.h"
+#include "Task.h"
+#include <string.h>
+#include "circBuffer2D.h"
+#include "circBuffer1D.h"
+#include <stdbool.h>
 
 //Register bit for enabling TXEIE bit. This is used instead of the definitions in stm32f4xx_usart.h
-#define USART_TXEIE		0b10000000
-#define USART_RXNEIE	0b100000
+#define USART_TXEIE	0b10000000
+#define USART_RXEIE	0b100000
 
-#define UART 				(UART_TO_USE)
-#define UART_GPIO_PORT		(GPIOB)
-#define UART_TX_PIN			(0x1 << TX_PIN_TO_USE)
-#define UART_RX_PIN			(0x1 << RX_PIN_TO_USE)
-#define UART_TX_PINSOUCE	(TX_PIN_TO_USE)
-#define UART_RX_PINSOUCE	(RX_PIN_TO_USE)
+// Receive buffer for UART, no DMA
+char inputString[MAX_BUFFER_DATA]; //string to store individual bytes as they are sent
+uint8_t inputStringIndex = 0;
+
+// Task handle to notify FSM task
+TaskHandle_t UARTTaskToNotify = NULL;
 
 typedef struct
 {
-	uint8_t transmitBuffer[OUTPUT_BUFFER_SIZE_BYTES];
-	uint8_t	transmitBufferIndexHead;
-	uint8_t transmitBufferIndexTail;
-
-	commBuffer_t receiveBuffer;
-
-	TaskHandle_t taskHandle;
+	Buffer_t 	 rxBuffer;
+	TaskHandle_t runTaskHandle;
 } UART_data_S;
 
 static UART_data_S UART_data;
 
-/***************************************************************
- * INITIALIZATION FUNCTIONS
- ***************************************************************/
+static void Configure_GPIO_USART1(void) {
+	/* Enable the peripheral clock of GPIOA */
+	RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOB, ENABLE);
 
-static void init_UART_GPIO() {
+	GPIO_InitTypeDef GPIO_InitStructure;
 
-	if (UART_GPIO_PORT == GPIOA) {
-		RCC->AHB1ENR |= RCC_AHB1ENR_GPIOAEN;
-	} else if (UART_GPIO_PORT == GPIOB) {
-		RCC->AHB1ENR |= RCC_AHB1ENR_GPIOBEN;
-	}
+	/* GPIOA Configuration: TIM5 CH1 (PA0) */
+	GPIO_InitStructure.GPIO_Pin |= GPIO_Pin_6 | GPIO_Pin_7;
+	GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF; // Input/Output controlled by peripheral
+	GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
+	GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;
+	GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_UP;
+	GPIO_Init(GPIOB, &GPIO_InitStructure);
 
-	GPIO_InitTypeDef GPIO_init;
-
-	GPIO_init.GPIO_Pin = UART_TX_PIN | UART_RX_PIN;
-	GPIO_init.GPIO_Mode = GPIO_Mode_AF;
-	GPIO_init.GPIO_Speed = GPIO_Speed_50MHz;
-	GPIO_init.GPIO_OType = GPIO_OType_OD;
-	GPIO_init.GPIO_PuPd = GPIO_PuPd_UP;
-
-	GPIO_Init(UART_GPIO_PORT, &GPIO_init);
-
-	if(UART == USART1) {
-		GPIO_PinAFConfig(UART_GPIO_PORT, UART_TX_PINSOUCE, GPIO_AF_USART1);
-		GPIO_PinAFConfig(UART_GPIO_PORT, UART_RX_PINSOUCE, GPIO_AF_USART1);
-	}
+	/* Connect USART1 pins to AF */
+	GPIO_PinAFConfig(GPIOB, GPIO_PinSource6, GPIO_AF_USART1);
+	GPIO_PinAFConfig(GPIOB, GPIO_PinSource7, GPIO_AF_USART1);
 }
 
-static void init_UART_periph() {
+/**
+ * @brief  This function configures USART1.
+ * @param  None
+ * @retval None
+ */
+static void Configure_USART1(void) {
+	/* Enable the peripheral clock USART1 */
+	RCC_APB2PeriphClockCmd(RCC_APB2Periph_USART1, ENABLE);
 
-	uint32_t interrupt_number = 0;
-	if (UART == USART1) {
-
-		RCC->APB2ENR |= RCC_APB2ENR_USART1EN;
-		interrupt_number = USART1_IRQn;
-	} else if (UART == USART6) {
-
-		RCC->APB2ENR |= RCC_APB2ENR_USART6EN;
-		interrupt_number = USART6_IRQn;
-	} else if (UART == USART2) {
-
-		RCC->APB2ENR |= RCC_APB1ENR_USART2EN;
-		interrupt_number = USART2_IRQn;
-	}
-
+	//RCC->CFGR3 |= RCC_CFGR3_USART1SW_1;
 	USART_InitTypeDef USART_InitStruct; // this is for the USART1 initialization
 
-	USART_InitStruct.USART_BaudRate = BAUD_RATE;	// the baudrate is set to the value we passed into this init function
+	USART_InitStruct.USART_BaudRate = 9600;	// the baudrate is set to the value we passed into this init function
 	USART_InitStruct.USART_WordLength = USART_WordLength_8b;// we want the data frame size to be 8 bits (standard)
 	USART_InitStruct.USART_StopBits = USART_StopBits_1;	// we want 1 stop bit (standard)
 	USART_InitStruct.USART_Parity = USART_Parity_No;// we don't want a parity bit (standard)
 	USART_InitStruct.USART_HardwareFlowControl = USART_HardwareFlowControl_None; // we don't want flow control (standard)
 	USART_InitStruct.USART_Mode = USART_Mode_Tx | USART_Mode_Rx; // we want to enable the transmitter and the receiver
-	USART_Init(UART, &USART_InitStruct);
+	USART_Init(USART1, &USART_InitStruct);
 
-	NVIC_SetPriority(interrupt_number, 7);
-	NVIC_EnableIRQ(interrupt_number);
+	USART1->CR1 |= USART_RXEIE; //Enable the USART1 receive interrupt
+
+	/* Configure IT */
+	/* (3) Set priority for USART1_IRQn */
+	/* (4) Enable USART1_IRQn */
+	NVIC_SetPriority(USART1_IRQn, 7); /* (3) */
+	NVIC_EnableIRQ(USART1_IRQn); /* (4) */
 
 	// finally this enables the complete USART1 peripheral
-	USART_Cmd(UART, ENABLE);
+	USART_Cmd(USART1, ENABLE);
 }
 
-static void init_UART_DMA() {
-
-	//USART1_RX is mapped on DM2 Stream2 Channel4
-	RCC->AHB1ENR |= RCC_AHB1ENR_DMA2EN;
-
-	DMA_STREAM->CR = 0;
-
-	while((DMA_STREAM->CR & 0x1) == 1);
-
-	DMA_STREAM->PAR = (uint32_t) &(UART->DR);
-	DMA_STREAM->M0AR = (uint32_t) &(UART_data.receiveBuffer.payloadSize);
-	DMA_STREAM->NDTR = PAYLOAD_INFO_SIZE_BYTES;
-	DMA_STREAM->CR |= DMA_Channel_4;
-	DMA_STREAM->CR |= DMA_DIR_PeripheralToMemory;
-	DMA_STREAM->CR |= DMA_SxCR_MINC; // Enable Memory
-	DMA_STREAM->CR |= DMA_SxCR_TCIE; // Enable transfer complete interrupt
-	DMA->LIFCR |= 0xFFFFFFFF;
-	DMA->HIFCR |= 0xFFFFFFFF;
-
-	UART->CR3 |= USART_CR3_DMAR; // Enable DMA in UART Peripheral
-
-	NVIC_SetPriority(DMA2_Stream2_IRQn, 7);
-	NVIC_EnableIRQ(DMA2_Stream2_IRQn);
-
-	DMA_STREAM->CR |= 0x1;
-
-}
-
-static void init_recieve_buffer() {
-
-	UART_data.receiveBuffer.isRecivingHeader = 1;
-	UART_data.receiveBuffer.isRecivingPayload = 0;
-	UART_data.receiveBuffer.payloadSize = 0;
-	UART_data.receiveBuffer.previousPacketID = 0;
-
-}
-
-extern void UART_receiveCallback(uint8_t const * const payload, uint8_t const payloadSize);
+extern UART_config_S UART_config;
 static void UART_run(void)
 {
 	while(1) {
+
 		(void)ulTaskNotifyTake(pdFALSE, portMAX_DELAY);
 
-		UART_receiveCallback(UART_data.receiveBuffer.payload, UART_data.receiveBuffer.payloadSize);
-		
-		//Enable DMA stream
-		DMA_STREAM->CR |= 0x1;
+		if(UART_config.receiveCallback != NULL)
+		{
+			uint8_t data[40]; // Whatever the buffer length is
+			Buffer_pop(&UART_data.rxBuffer, (char *)data);
+			UART_config.receiveCallback(data, 40);
+		}
 	}
 }
 
-extern void init_UART() {
+extern void UART_init() {
 
-	init_UART_GPIO();
-	init_UART_periph();
-	init_UART_DMA();
-	init_recieve_buffer();
+	//initialize the input buffer
+	Buffer_init(&UART_data.rxBuffer);
+
+	//initialize the UART driver
+	Configure_GPIO_USART1();
+	Configure_USART1();
 
 	(void)xTaskCreate((TaskFunction_t)UART_run,       /* Function that implements the task. */
 					  "UARTTask",          /* Text name for the task. */
 					  configMINIMAL_STACK_SIZE,      /* Stack size in words, not bytes. */
 					  NULL,    /* Parameter passed into the task. */
 					  tskIDLE_PRIORITY + 1,/* Priority at which the task is created. */
-					  &UART_data.taskHandle);      /* Used to pass out the created task's handle. */
+					  &UART_data.runTaskHandle);      /* Used to pass out the created task's handle. */
 
-}
-
-
-
-/***************************************************************
- * INTERFACE FUNCTIONS
- ***************************************************************/
-
-/*
- * ERROR CODE:
- * -1 = String length is not 1 or greater
- * -2 = OutputBuffer will overflow. Wait some time and retry
- * 1  = Added to buffer successfully
- */
-extern int UART_push_out_len(char* mesg, int len) {
-
-	if(len < 1) {
-		return -1;
-	}
-
-	int diff = UART_data.transmitBufferIndexTail - UART_data.transmitBufferIndexHead;
-
-	if(diff <= 0) {
-		diff += OUTPUT_BUFFER_SIZE_BYTES;
-	}
-	if(len > (diff - 1)) { //Has to be diff - 1. Cannot write to position pointed to by UART_data.transmitBufferIndexTail.
-		return -2;
-	}
-
-	for (int i = 0; i < len; i++) {
-		UART_data.transmitBuffer[UART_data.transmitBufferIndexHead] = mesg[i];
-		UART_data.transmitBufferIndexHead = (UART_data.transmitBufferIndexHead + 1) & 63;
-	}
-
-	USART1->CR1 |= USART_TXEIE;
-	return 1;
 
 }
 
@@ -218,86 +127,55 @@ extern int UART_push_out_len(char* mesg, int len) {
  * -2 = OutputBuffer will overflow. Wait some time and retry
  * 1  = Added to buffer successfully
  */
-extern int UART_push_out(char* mesg) {
+extern bool UART_push_out(char* mesg) {
 
 	 return UART_push_out_len(mesg, strlen(mesg));
 }
 
-extern void UART_push_out_len_debug(char * message, uint8_t length) {
-	for(uint8_t i = 0; i < length; i++) {
-		while(!(UART->SR & USART_SR_TXE));
-		UART->DR = message[i];
+extern bool UART_push_out_len(char* mesg, int len) {
 
-	}
+	bool ret = false;
+	ret = circBuffer1D_push(CIRCBUFFER1D_CHANNEL_UART_TX, (uint8_t *)mesg, len);
+
+	USART1->CR1 |= USART_TXEIE;
+	return ret;
 }
 
-extern void UART_push_out_debug(char * message) {
-	UART_push_out_len_debug(message, strlen(message));
-}
+// This is handling two cases. The interrupt will run if a character is received
+// and when data is moved out from the transmit buffer and the transmit buffer is empty
+void USART1_IRQHandler() {
 
-/***************************************************************
- * INTERRUPT HANDLERS
- ***************************************************************/
+	if((USART1->SR & USART_FLAG_RXNE) == USART_FLAG_RXNE) { //If character is received
 
-static inline void UART_IRQHandler() {
+		char tempInput[1];
+		tempInput[0] = USART1->DR;
 
-	if ((UART->SR & USART_FLAG_TXE) == USART_FLAG_TXE) { // If Transmission is complete
+		//Check for new line character which indicates end of command
+		if (tempInput[0] == '\n' || tempInput[0] == '\r') {
 
-		if ((UART_data.transmitBufferIndexHead - UART_data.transmitBufferIndexTail) != 0) {
-			UART->DR = UART_data.transmitBuffer[UART_data.transmitBufferIndexTail];
-			UART_data.transmitBufferIndexTail = (UART_data.transmitBufferIndexTail + 1) & 63;
+			if(strlen(inputString) > 0) {
+				Buffer_add(&UART_data.rxBuffer, inputString, MAX_BUFFER_DATA);
+				memset(inputString, 0, MAX_BUFFER_DATA);
+				inputStringIndex = 0;
+
+				BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+				vTaskNotifyGiveFromISR(UARTTaskToNotify, &xHigherPriorityTaskWoken);
+			}
+
 		} else {
-			UART->CR1 &= ~USART_TXEIE;
+			inputString[inputStringIndex] = tempInput[0];
+			inputStringIndex = (inputStringIndex + 1) % MAX_BUFFER_DATA;
 		}
 
+	} else if ((USART1->SR & USART_FLAG_TXE) == USART_FLAG_TXE) { // If Transmission is complete
+
+		uint8_t dataToSend;
+		if(circBuffer1D_popByte(CIRCBUFFER1D_CHANNEL_UART_TX, &dataToSend))
+		{
+			USART1->DR = dataToSend;
+		} else
+		{
+			USART1->CR1 &= ~USART_TXEIE;
+		}
 	}
-}
-
-void USART1_IRQHandler() {
-	UART_IRQHandler();
-}
-
-void USART2_IRQHandler() {
-	UART_IRQHandler();
-}
-
-void USART6_IRQHandler() {
-	UART_IRQHandler();
-}
-
-static inline void DMA_TC_Handler() { // DMA Transfer Complete Handler
-
-	if (UART_data.receiveBuffer.isRecivingHeader == 1) {
-
-		DMA_STREAM->M0AR = (uint32_t) UART_data.receiveBuffer.payload;
-		DMA_STREAM->NDTR = UART_data.receiveBuffer.payloadSize;
-		DMA_STREAM->CR |= 0x1;
-
-		UART_data.receiveBuffer.isRecivingHeader = 0;
-		UART_data.receiveBuffer.isRecivingPayload = 1;
-
-		UART_push_out("ACK\r\n");
-
-	} else if (UART_data.receiveBuffer.isRecivingPayload == 1) {
-
-		DMA_STREAM->M0AR = (uint32_t) &(UART_data.receiveBuffer.payloadSize);
-		DMA_STREAM->NDTR = PAYLOAD_INFO_SIZE_BYTES;
-
-		UART_data.receiveBuffer.isRecivingHeader = 1;
-		UART_data.receiveBuffer.isRecivingPayload = 0;
-
-		vTaskNotifyGiveFromISR(UART_data.taskHandle, pdFALSE);
-	}
-
-}
-
-void DMA2_Stream2_IRQHandler() {
-
-	if((DMA->LISR & DMA_LISR_TCIF2 ) == DMA_LISR_TCIF2 ) {
-
-		DMA->LIFCR |= DMA_LIFCR_CTCIF2;
-
-		DMA_TC_Handler();
-	}
-
 }

@@ -8,6 +8,7 @@
 #include "RTOS.h"
 
 #include "LED.h"
+#include "circBuffer1D.h"
 
 /*
  * If a new FreeRTOS task is needed, create it here so that there is one place where
@@ -16,6 +17,7 @@
 void RTOS_init(void)
 {
 	LED_init();
+	circBuffer1D_init();
 }
 
 void RTOS_run1ms(void)

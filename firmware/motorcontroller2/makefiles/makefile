@@ -3,13 +3,15 @@ REPO_ROOT=/root/firmware
 COMPONENT_DIR=$(REPO_ROOT)/motorcontroller2
 COMPONENT_SHARED_CODE_DIR=$(COMPONENT_DIR)/code/shared
 SHARED_CODE_DIR=$(REPO_ROOT)/shared/code
-CODE_DIR=$(COMPONENT_DIR)/code/$(ARG1)
+CODE_DIR=$(COMPONENT_DIR)/code/$(TARGET)
 
-ifeq ($(ARG1),clean)
+ifeq ($(TARGET),clean)
 	OUTPUT_DIR=$(COMPONENT_DIR)/MOTORCONTROLLER
 else
-	OUTPUT_DIR=$(COMPONENT_DIR)/MOTORCONTROLLER/$(ARG1)
+	OUTPUT_DIR=$(COMPONENT_DIR)/MOTORCONTROLLER/$(TARGET)
 endif
+
+
 
 DEVICE_DEFINES+= \
 -DSTM32 \
@@ -34,10 +36,10 @@ INCLUDE_PATH+= \
 -include bootloaderStartup.mk
 
 LINKER_SCRIPT= $(CODE_DIR)/STM32F411RETx_FLASH.ld
-TARGET_ELF=$(OUTPUT_DIR)/motorcontroller_$(ARG1).elf
-TARGET_BIN=$(OUTPUT_DIR)/motorcontroller_$(ARG1).bin
-TARGET_HEX=$(OUTPUT_DIR)/motorcontroller_$(ARG1).hex
-TARGET_MAP=$(OUTPUT_DIR)/motorcontroller_$(ARG1).map
+TARGET_ELF=$(OUTPUT_DIR)/motorcontroller_$(TARGET).elf
+TARGET_BIN=$(OUTPUT_DIR)/motorcontroller_$(TARGET).bin
+TARGET_HEX=$(OUTPUT_DIR)/motorcontroller_$(TARGET).hex
+TARGET_MAP=$(OUTPUT_DIR)/motorcontroller_$(TARGET).map
 
 APP_LINKER_FLAGS+= \
 --nmagic

@@ -1,7 +1,7 @@
 
 BOOTLOADER_OBJS += \
-$(OUTPUT_DIR)/obj/bootloader/UART.o \
-$(OUTPUT_DIR)/obj/bootloader/UART_componentSpecific.o \
+$(OUTPUT_DIR)/obj/bootloader/UARTDma.o \
+$(OUTPUT_DIR)/obj/bootloader/UARTDma_componentSpecific.o \
 $(OUTPUT_DIR)/obj/bootloader/bootloader/Bootloader.o \
 $(OUTPUT_DIR)/obj/bootloader/bootloader/Flash_Interface.o
 

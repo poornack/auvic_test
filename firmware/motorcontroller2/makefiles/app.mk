@@ -2,12 +2,22 @@
 APP_OBJS += \
 $(OUTPUT_DIR)/obj/app/RTOS/RTOS.o \
 $(OUTPUT_DIR)/obj/app/RTOS/RTOS_componentSpecific.o \
-$(OUTPUT_DIR)/obj/app/LED.o
+$(OUTPUT_DIR)/obj/app/LED.o \
+$(OUTPUT_DIR)/obj/app/circBuffer1D.o \
+$(OUTPUT_DIR)/obj/app/circBuffer1D_componentSpecific.o \
+$(OUTPUT_DIR)/obj/app/UART.o \
+$(OUTPUT_DIR)/obj/app/UART_componentSpecific.o \
+$(OUTPUT_DIR)/obj/app/circBuffer2D.o
 
 APP_C_DEFS += \
 $(OUTPUT_DIR)/obj/app/RTOS/RTOS.d \
 $(OUTPUT_DIR)/obj/app/RTOS/RTOS_componentSpecific.d \
-$(OUTPUT_DIR)/obj/app/LED.d
+$(OUTPUT_DIR)/obj/app/LED.d \
+$(OUTPUT_DIR)/obj/app/circBuffer1D.d \
+$(OUTPUT_DIR)/obj/app/circBuffer1D_componentSpecific.d \
+$(OUTPUT_DIR)/obj/app/UART.d \
+$(OUTPUT_DIR)/obj/app/UART_componentSpecific.d \
+$(OUTPUT_DIR)/obj/app/circBuffer2D.o
 
 COMPILE_FLAGS= \
 -O0 \
