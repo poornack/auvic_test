@@ -102,15 +102,18 @@ bool circBuffer1D_push(const circBuffer1D_channel_E channel, const uint8_t * con
 {
 	bool ret = false;
 
-	if((channel < CIRCBUFFER1D_CHANNEL_COUNT) && (data != NULL) && (size > 0U) && (circBuffer1D_getSpaceAvailable(channel) >= size))
+	if((channel < CIRCBUFFER1D_CHANNEL_COUNT) && (data != NULL) && (size > 0U))
 	{
-		ret = true;
-		for(uint8_t index = 0U; index < size; index++)
+		if(circBuffer1D_getSpaceAvailable(channel) >= size)
 		{
-			if(circBuffer1D_pushByte(channel, data[index]) == false)
+			ret = true;
+			for(uint8_t index = 0U; index < size; index++)
 			{
-				ret = false;
-				break;
+				if(circBuffer1D_pushByte(channel, data[index]) == false)
+				{
+					ret = false;
+					break;
+				}
 			}
 		}
 	}

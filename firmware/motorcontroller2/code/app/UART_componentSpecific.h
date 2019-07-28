@@ -29,4 +29,13 @@
 #define UART_TO_BOARD_MESSAGE_TYPE		protocol_message_S
 #endif
 
+#define UART_RX_BUFFER_LENGTH (45U)
+#define UART_RX_BUFFER_COUNT  (8U)
+
+#define UART_TO_BOARD_MESSAGE_TYPE		motorcontroller2_toBoard_M
+#define UART_TO_BOARD_MESSAGE_FIELDS	motorcontroller2_toBoard_M_fields
+
+#define UART_FROM_BOARD_MESSAGE_TYPE
+#define UART_FROM_BOARD_MESSAGE_FIELDS
+
 #endif /* MOTORCONTROLLER2_CODE_APP_UART_COMPONENTSPECIFIC_H_ */

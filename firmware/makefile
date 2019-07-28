@@ -25,3 +25,9 @@ help:
 	@echo
 	@echo Component: powerboard1
 	@echo       Available TARGET options: app, bootloader
+
+
+sandbox:
+	@echo SANDBOX
+	$(shell mkdir -p motorcontroller2/MOTORCONTROLLER2/generated/protobuf)
+	libs/nanopb/nanopb-0.3.9.3-windows-x86/generator-bin/protoc --nanopb_out=motorcontroller2/MOTORCONTROLLER2/generated/protobuf motorcontroller2/data/protobuf/motorcontroller2.proto

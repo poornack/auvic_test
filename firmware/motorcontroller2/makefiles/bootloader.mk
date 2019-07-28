@@ -5,11 +5,7 @@ $(OUTPUT_DIR)/obj/bootloader/UARTDma_componentSpecific.o \
 $(OUTPUT_DIR)/obj/bootloader/bootloader/Bootloader.o \
 $(OUTPUT_DIR)/obj/bootloader/bootloader/Flash_Interface.o
 
-BOOTLOADER_C_DEFS += \
-$(OUTPUT_DIR)/obj/bootloader/UART.d \
-$(OUTPUT_DIR)/obj/bootloader/UART_componentSpecific.d \
-$(OUTPUT_DIR)/obj/bootloader/bootloader/Bootloader.d \
-$(OUTPUT_DIR)/obj/bootloader/bootloader/Flash_Interface.d
+BOOTLOADER_C_DEPS += $(BOOTLOADER_OBJS:%.o=%.d)
 
 COMPILE_FLAGS= \
 -O0 \
@@ -28,19 +24,10 @@ $(shell mkdir -p $(OUTPUT_DIR)/obj/bootloader/RTOS)
 
 # Each subdirectory must supply rules for building sources it contributes
 $(OUTPUT_DIR)/obj/bootloader/%.o: $(CODE_DIR)/%.c
-	@echo 'Building file: $<'
-	@echo 'Invoking: MCU GCC Compiler'
-	@echo $(PWD)
-	arm-none-eabi-gcc -mcpu=cortex-m4 -mthumb -mfloat-abi=hard -mfpu=fpv4-sp-d16 $(DEVICE_DEFINES) $(OTHER_DEFINES) $(INCLUDE_PATH) $(COMPILE_FLAGS) -fmessage-length=0 -ffunction-sections -c -MMD -MP -MT"$@" -o "$@" "$<"
-	@echo 'Finished building: $<'
-	@echo ' '
+	@$(MAKE) --no-print-directory arm-complier ARM_TOOLS_COMPILER_SOURCE_FILE=$< ARM_TOOLS_COMPILER_OBJECT_FILE=$@ ARM_TOOLS_COMPILER_DEFS_FILE=$(@:%.o=%.d)
 
 # Each subdirectory must supply rules for building sources it contributes
 $(OUTPUT_DIR)/obj/bootloader/%.o: $(SHARED_CODE_DIR)/%.c
-	@echo 'Building file: $<'
-	@echo 'Invoking: MCU GCC Compiler'
-	@echo $(PWD)
-	arm-none-eabi-gcc -mcpu=cortex-m4 -mthumb -mfloat-abi=hard -mfpu=fpv4-sp-d16 $(DEVICE_DEFINES) $(OTHER_DEFINES) $(INCLUDE_PATH) $(COMPILE_FLAGS) -fmessage-length=0 -ffunction-sections -c -MMD -MP -MT"$@" -o "$@" "$<"
-	@echo 'Finished building: $<'
-	@echo ' '
+	@$(MAKE) --no-print-directory arm-complier ARM_TOOLS_COMPILER_SOURCE_FILE=$< ARM_TOOLS_COMPILER_OBJECT_FILE=$@ ARM_TOOLS_COMPILER_DEFS_FILE=$(@:%.o=%.d)
+
 	

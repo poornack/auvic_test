@@ -14,7 +14,7 @@
 
 typedef const struct
 {
-	void (* receiveCallback)(uint8_t const * const payload, uint8_t const payloadSize);
+	void (* receiveCallback)(UART_TO_BOARD_MESSAGE_TYPE const * const message);
 } UART_config_S;
 
 

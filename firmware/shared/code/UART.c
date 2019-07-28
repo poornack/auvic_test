@@ -1,36 +1,33 @@
 /*
- * simple_UART.c
+ * UART.c
  *
  *  Created on: Aug 19, 2017
  *      Author: abates
  */
 
-
 #include "UART.h"
 
+#include <stdbool.h>
 #include "stm32f4xx.h"
 #include "FreeRTOS.h"
 #include "Task.h"
 #include <string.h>
 #include "circBuffer2D.h"
 #include "circBuffer1D.h"
-#include <stdbool.h>
+#include "pb_common.h"
+#include "pb_decode.h"
 
 //Register bit for enabling TXEIE bit. This is used instead of the definitions in stm32f4xx_usart.h
 #define USART_TXEIE	0b10000000
 #define USART_RXEIE	0b100000
 
 // Receive buffer for UART, no DMA
-char inputString[MAX_BUFFER_DATA]; //string to store individual bytes as they are sent
+uint8_t inputString[UART_RX_BUFFER_LENGTH]; //string to store individual bytes as they are sent
 uint8_t inputStringIndex = 0;
-
-// Task handle to notify FSM task
-TaskHandle_t UARTTaskToNotify = NULL;
 
 typedef struct
 {
-	Buffer_t 	 rxBuffer;
-	TaskHandle_t runTaskHandle;
+	TaskHandle_t taskHandle;
 } UART_data_S;
 
 static UART_data_S UART_data;
@@ -95,17 +92,19 @@ static void UART_run(void)
 
 		if(UART_config.receiveCallback != NULL)
 		{
-			uint8_t data[40]; // Whatever the buffer length is
-			Buffer_pop(&UART_data.rxBuffer, (char *)data);
-			UART_config.receiveCallback(data, 40);
+			uint8_t receivedData[UART_RX_BUFFER_LENGTH];
+			circBuffer2D_pop(CIRCBUFFER2D_CHANNEL_UART_RX, receivedData);
+			pb_istream_t istream = pb_istream_from_buffer(receivedData, sizeof(receivedData));
+			UART_TO_BOARD_MESSAGE_TYPE decodedMessage;
+			if(pb_decode(&istream, UART_TO_BOARD_MESSAGE_FIELDS, &decodedMessage))
+			{
+				UART_config.receiveCallback(&decodedMessage);
+			}
 		}
 	}
 }
 
 extern void UART_init() {
-
-	//initialize the input buffer
-	Buffer_init(&UART_data.rxBuffer);
 
 	//initialize the UART driver
 	Configure_GPIO_USART1();
@@ -116,7 +115,7 @@ extern void UART_init() {
 					  configMINIMAL_STACK_SIZE,      /* Stack size in words, not bytes. */
 					  NULL,    /* Parameter passed into the task. */
 					  tskIDLE_PRIORITY + 1,/* Priority at which the task is created. */
-					  &UART_data.runTaskHandle);      /* Used to pass out the created task's handle. */
+					  &UART_data.taskHandle);      /* Used to pass out the created task's handle. */
 
 
 }
@@ -127,17 +126,20 @@ extern void UART_init() {
  * -2 = OutputBuffer will overflow. Wait some time and retry
  * 1  = Added to buffer successfully
  */
-extern bool UART_push_out(char* mesg) {
+extern bool UART_write(char* mesg) {
 
-	 return UART_push_out_len(mesg, strlen(mesg));
+	 return UART_push_out_len(mesg, strnlen(mesg, UART_TX_BUFFER_SIZE));
 }
 
-extern bool UART_push_out_len(char* mesg, int len) {
+extern bool UART_writeLen(char* mesg, int len) {
 
 	bool ret = false;
-	ret = circBuffer1D_push(CIRCBUFFER1D_CHANNEL_UART_TX, (uint8_t *)mesg, len);
+	if((mesg != NULL) && (len <= UART_TX_BUFFER_SIZE))
+	{
+		ret = circBuffer1D_push(CIRCBUFFER1D_CHANNEL_UART_TX, (uint8_t *)mesg, len);
+		USART1->CR1 |= USART_TXEIE;
+	}
 
-	USART1->CR1 |= USART_TXEIE;
 	return ret;
 }
 
@@ -153,18 +155,18 @@ void USART1_IRQHandler() {
 		//Check for new line character which indicates end of command
 		if (tempInput[0] == '\n' || tempInput[0] == '\r') {
 
-			if(strlen(inputString) > 0) {
-				Buffer_add(&UART_data.rxBuffer, inputString, MAX_BUFFER_DATA);
-				memset(inputString, 0, MAX_BUFFER_DATA);
+			if(inputStringIndex > 0) {
+				circBuffer2D_push(CIRCBUFFER2D_CHANNEL_UART_RX, inputString, inputStringIndex);
+				memset(inputString, 0, UART_RX_BUFFER_LENGTH);
 				inputStringIndex = 0;
 
 				BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-				vTaskNotifyGiveFromISR(UARTTaskToNotify, &xHigherPriorityTaskWoken);
+				vTaskNotifyGiveFromISR(UART_data.taskHandle, &xHigherPriorityTaskWoken);
 			}
 
 		} else {
 			inputString[inputStringIndex] = tempInput[0];
-			inputStringIndex = (inputStringIndex + 1) % MAX_BUFFER_DATA;
+			inputStringIndex = (inputStringIndex + 1) % UART_RX_BUFFER_LENGTH;
 		}
 
 	} else if ((USART1->SR & USART_FLAG_TXE) == USART_FLAG_TXE) { // If Transmission is complete
