@@ -25,6 +25,18 @@ static const UART_HWConfig_S UART_HWConfig =
 	.enablePeripheralsClockCallback = UART_enablePeripheralsClockCallback
 };
 
+static const UART_HWConfig_S UART_HWConfig = 
+{
+	.rxPin = GPIO_PinSource6,
+	.txPin = GPIO_PinSource7,
+	.GPIOPort = GPIOB,
+
+	.UARTPeriph = USART1,
+	.UARTInterruptNumber = USART1_IRQn,
+
+	.enablePeripheralsClockCallback = UART_enablePeripheralsClockCallback
+};
+
 extern UART_config_S UART_config;
 UART_config_S UART_config =
 {

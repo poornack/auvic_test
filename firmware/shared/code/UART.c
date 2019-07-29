@@ -17,6 +17,9 @@
 #include "pb_common.h"
 #include "pb_decode.h"
 
+// Move to common units
+#define BITVALUE(x) ( 1U << (x))
+
 //Register bit for enabling TXEIE bit. This is used instead of the definitions in stm32f4xx_usart.h
 #define USART_TXEIE	0b10000000
 #define USART_RXEIE	0b100000
@@ -31,37 +34,41 @@ typedef struct
 } UART_data_S;
 
 static UART_data_S UART_data;
+extern UART_config_S UART_config;
 
-static void Configure_GPIO_USART1(void) {
-	/* Enable the peripheral clock of GPIOA */
-	RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOB, ENABLE);
+static void UART_configureGPIO(void)
+{
+	// Check that all configs are valid
+	configASSERT(IS_GPIO_PIN_SOURCE(UART_config.HWConfig->rxPin));
+	configASSERT(IS_GPIO_PIN_SOURCE(UART_config.HWConfig->txPin));
+	configASSERT(IS_GPIO_ALL_PERIPH(UART_config.HWConfig->GPIOPort));
+
+	// Clock should be enabled in the enable clock callback
 
 	GPIO_InitTypeDef GPIO_InitStructure;
+	GPIO_StructInit(&GPIO_InitStructure);
 
-	/* GPIOA Configuration: TIM5 CH1 (PA0) */
-	GPIO_InitStructure.GPIO_Pin |= GPIO_Pin_6 | GPIO_Pin_7;
+	// Configure GPIOs
+	GPIO_InitStructure.GPIO_Pin = BITVALUE(UART_config.HWConfig->rxPin) | BITVALUE(UART_config.HWConfig->txPin);
 	GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF; // Input/Output controlled by peripheral
 	GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
 	GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;
 	GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_UP;
-	GPIO_Init(GPIOB, &GPIO_InitStructure);
+	GPIO_Init(UART_config.HWConfig->GPIOPort, &GPIO_InitStructure);
 
-	/* Connect USART1 pins to AF */
-	GPIO_PinAFConfig(GPIOB, GPIO_PinSource6, GPIO_AF_USART1);
-	GPIO_PinAFConfig(GPIOB, GPIO_PinSource7, GPIO_AF_USART1);
+	// Attatch GPIO AF to UART. This section needs to change if UART6 needs to be used
+	GPIO_PinAFConfig(UART_config.HWConfig->GPIOPort, UART_config.HWConfig->rxPin, GPIO_AF_USART1);
+	GPIO_PinAFConfig(UART_config.HWConfig->GPIOPort, UART_config.HWConfig->txPin, GPIO_AF_USART1);
 }
 
-/**
- * @brief  This function configures USART1.
- * @param  None
- * @retval None
- */
-static void Configure_USART1(void) {
-	/* Enable the peripheral clock USART1 */
-	RCC_APB2PeriphClockCmd(RCC_APB2Periph_USART1, ENABLE);
+static void UART_configureUARTPeriph(void)
+{
+	configASSERT(IS_USART_1236_PERIPH(UART_config.HWConfig->UARTPeriph)); // Switch to `IS_USART_APP_PERIPH` if needed
 
-	//RCC->CFGR3 |= RCC_CFGR3_USART1SW_1;
-	USART_InitTypeDef USART_InitStruct; // this is for the USART1 initialization
+	// Clock should be enabled in the enable clock callback
+
+	USART_InitTypeDef USART_InitStruct;
+	USART_StructInit(&USART_InitStruct);
 
 	USART_InitStruct.USART_BaudRate = 9600;	// the baudrate is set to the value we passed into this init function
 	USART_InitStruct.USART_WordLength = USART_WordLength_8b;// we want the data frame size to be 8 bits (standard)
@@ -69,21 +76,16 @@ static void Configure_USART1(void) {
 	USART_InitStruct.USART_Parity = USART_Parity_No;// we don't want a parity bit (standard)
 	USART_InitStruct.USART_HardwareFlowControl = USART_HardwareFlowControl_None; // we don't want flow control (standard)
 	USART_InitStruct.USART_Mode = USART_Mode_Tx | USART_Mode_Rx; // we want to enable the transmitter and the receiver
-	USART_Init(USART1, &USART_InitStruct);
+	USART_Init(UART_config.HWConfig->UARTPeriph, &USART_InitStruct);
 
-	USART1->CR1 |= USART_RXEIE; //Enable the USART1 receive interrupt
+	UART_config.HWConfig->UARTPeriph->CR1 |= USART_RXEIE; //Enable the receive interrupt
 
-	/* Configure IT */
-	/* (3) Set priority for USART1_IRQn */
-	/* (4) Enable USART1_IRQn */
-	NVIC_SetPriority(USART1_IRQn, 7); /* (3) */
-	NVIC_EnableIRQ(USART1_IRQn); /* (4) */
+	NVIC_SetPriority(UART_config.HWConfig->UARTInterruptNumber, 7); /* (3) */
+	NVIC_EnableIRQ(UART_config.HWConfig->UARTInterruptNumber); /* (4) */
 
-	// finally this enables the complete USART1 peripheral
-	USART_Cmd(USART1, ENABLE);
+	USART_Cmd(UART_config.HWConfig->UARTPeriph, ENABLE);
 }
 
-extern UART_config_S UART_config;
 static void UART_run(void)
 {
 	while(1) {
@@ -106,9 +108,16 @@ static void UART_run(void)
 
 extern void UART_init() {
 
-	//initialize the UART driver
-	Configure_GPIO_USART1();
-	Configure_USART1();
+	if(UART_config.HWConfig->enablePeripheralsClockCallback != NULL)
+	{
+		UART_config.HWConfig->enablePeripheralsClockCallback();
+	} else
+	{
+		configASSERT(0U);
+	}
+	
+	UART_configureGPIO();
+	UART_configureUARTPeriph();
 
 	(void)xTaskCreate((TaskFunction_t)UART_run,       /* Function that implements the task. */
 					  "UARTTask",          /* Text name for the task. */
@@ -116,7 +125,6 @@ extern void UART_init() {
 					  NULL,    /* Parameter passed into the task. */
 					  tskIDLE_PRIORITY + 1,/* Priority at which the task is created. */
 					  &UART_data.taskHandle);      /* Used to pass out the created task's handle. */
-
 
 }
 
@@ -128,7 +136,7 @@ extern void UART_init() {
  */
 extern bool UART_write(char* mesg) {
 
-	 return UART_push_out_len(mesg, strnlen(mesg, UART_TX_BUFFER_SIZE));
+	return UART_push_out_len(mesg, strnlen(mesg, UART_TX_BUFFER_SIZE));
 }
 
 extern bool UART_writeLen(char* mesg, int len) {
@@ -137,20 +145,18 @@ extern bool UART_writeLen(char* mesg, int len) {
 	if((mesg != NULL) && (len <= UART_TX_BUFFER_SIZE))
 	{
 		ret = circBuffer1D_push(CIRCBUFFER1D_CHANNEL_UART_TX, (uint8_t *)mesg, len);
-		USART1->CR1 |= USART_TXEIE;
+		UART_config.HWConfig->UARTPeriph->CR1 |= USART_TXEIE;
 	}
 
 	return ret;
 }
 
-// This is handling two cases. The interrupt will run if a character is received
-// and when data is moved out from the transmit buffer and the transmit buffer is empty
-void USART1_IRQHandler() {
-
-	if((USART1->SR & USART_FLAG_RXNE) == USART_FLAG_RXNE) { //If character is received
+static inline void UART_commonInterruptHandler(void)
+{
+	if((UART_config.HWConfig->UARTPeriph->SR & USART_FLAG_RXNE) == USART_FLAG_RXNE) { //If character is received
 
 		char tempInput[1];
-		tempInput[0] = USART1->DR;
+		tempInput[0] = UART_config.HWConfig->UARTPeriph->DR;
 
 		//Check for new line character which indicates end of command
 		if (tempInput[0] == '\n' || tempInput[0] == '\r') {
@@ -169,15 +175,32 @@ void USART1_IRQHandler() {
 			inputStringIndex = (inputStringIndex + 1) % UART_RX_BUFFER_LENGTH;
 		}
 
-	} else if ((USART1->SR & USART_FLAG_TXE) == USART_FLAG_TXE) { // If Transmission is complete
+	} else if ((UART_config.HWConfig->UARTPeriph->SR & USART_FLAG_TXE) == USART_FLAG_TXE) { // If Transmission is complete
 
 		uint8_t dataToSend;
 		if(circBuffer1D_popByte(CIRCBUFFER1D_CHANNEL_UART_TX, &dataToSend))
 		{
-			USART1->DR = dataToSend;
+			UART_config.HWConfig->UARTPeriph->DR = dataToSend;
 		} else
 		{
-			USART1->CR1 &= ~USART_TXEIE;
+			UART_config.HWConfig->UARTPeriph->CR1 &= ~USART_TXEIE;
 		}
 	}
+}
+
+// This is handling two cases. The interrupt will run if a character is received
+// and when data is moved out from the transmit buffer and the transmit buffer is empty
+void USART1_IRQHandler()
+{
+	UART_commonInterruptHandler();
+}
+
+void USART2_IRQHandler()
+{
+	UART_commonInterruptHandler();
+}
+
+void USART6_IRQHandler()
+{
+	UART_commonInterruptHandler();
 }
