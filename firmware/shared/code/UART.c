@@ -1,8 +1,5 @@
 /*
  * UART.c
- *
- *  Created on: Aug 19, 2017
- *      Author: abates
  */
 
 #include "UART.h"
@@ -24,14 +21,46 @@
 #define USART_TXEIE	0b10000000
 #define USART_RXEIE	0b100000
 
-// Receive buffer for UART, no DMA
-uint8_t inputString[UART_RX_BUFFER_LENGTH]; //string to store individual bytes as they are sent
-uint8_t inputStringIndex = 0;
+typedef enum
+{
+	UART_STATE_IDLE,
+	UART_START_PROCESS_RECEIVED_DATA
+} UART_state_E;
+
+typedef enum
+{
+	UART_TX_STATE_IDLE,
+	UART_TX_STATE_TRANSMIT,
+} UART_TXState_E;
+
+typedef enum
+{
+	UART_RX_STATE_RECEIVE_PAYLOAD_SIZE,
+	UART_RX_STATE_RECEIVE_PAYLOAD,
+	UART_RX_STATE_RECEIVE_PAYLOAD_CRC,
+} UART_RXState_E;
+
+typedef struct
+{
+	uint16_t payloadSize;
+	uint8_t payload[UART_RX_BUFFER_LENGTH];
+	uint32_t crc;
+} UART_RXBuffer_S;
 
 typedef struct
 {
 	TaskHandle_t taskHandle;
+	UART_state_E state;
+	UART_TXState_E TXState;
+	UART_RXState_E RXState;
+	uint16_t expectedRXPayloadSize;
+	UART_RXBuffer_S RXBuffer;
+	uint16_t bytesReceived; 
 } UART_data_S;
+
+// Receive buffer for UART, no DMA
+uint8_t inputString[UART_RX_BUFFER_LENGTH]; //string to store individual bytes as they are sent
+uint8_t inputStringIndex = 0;
 
 static UART_data_S UART_data;
 extern UART_config_S UART_config;
@@ -88,36 +117,56 @@ static void UART_configureUARTPeriph(void)
 
 static void UART_run(void)
 {
-	while(1) {
-
-		(void)ulTaskNotifyTake(pdFALSE, portMAX_DELAY);
-
-		if(UART_config.receiveCallback != NULL)
+	while(1)
+	{
+		switch(UART_data.state)
 		{
-			uint8_t receivedData[UART_RX_BUFFER_LENGTH];
-			circBuffer2D_pop(CIRCBUFFER2D_CHANNEL_UART_RX, receivedData);
-			pb_istream_t istream = pb_istream_from_buffer(receivedData, sizeof(receivedData));
-			UART_TO_BOARD_MESSAGE_TYPE decodedMessage;
-			if(pb_decode(&istream, UART_TO_BOARD_MESSAGE_FIELDS, &decodedMessage))
+			case UART_START_PROCESS_RECEIVED_DATA:
 			{
-				UART_config.receiveCallback(&decodedMessage);
+				if(UART_config.receiveCallback != NULL)
+				{
+					uint8_t receivedData[UART_RX_BUFFER_LENGTH];
+					circBuffer2D_pop(CIRCBUFFER2D_CHANNEL_UART_RX, receivedData);
+					pb_istream_t istream = pb_istream_from_buffer(receivedData, sizeof(receivedData));
+					UART_TO_BOARD_MESSAGE_TYPE decodedMessage;
+					if(pb_decode(&istream, UART_TO_BOARD_MESSAGE_FIELDS, &decodedMessage))
+					{
+						UART_config.receiveCallback(&decodedMessage);
+					}
+				}
+
+				UART_data.state = UART_STATE_IDLE;
+
+				break;
+			}
+			case UART_STATE_IDLE:
+			default:
+			{
+				if(ulTaskNotifyTake(pdFALSE, portMAX_DELAY) != 0U)
+				{
+					UART_data.state = UART_START_PROCESS_RECEIVED_DATA;
+				}
+				break;
 			}
 		}
 	}
 }
 
-extern void UART_init() {
-
+extern void UART_init()
+{
 	if(UART_config.HWConfig->enablePeripheralsClockCallback != NULL)
 	{
 		UART_config.HWConfig->enablePeripheralsClockCallback();
-	} else
+	}
+	else
 	{
 		configASSERT(0U);
 	}
-	
+
 	UART_configureGPIO();
 	UART_configureUARTPeriph();
+
+	UART_data.state = UART_STATE_IDLE;
 
 	(void)xTaskCreate((TaskFunction_t)UART_run,       /* Function that implements the task. */
 					  "UARTTask",          /* Text name for the task. */
@@ -134,13 +183,13 @@ extern void UART_init() {
  * -2 = OutputBuffer will overflow. Wait some time and retry
  * 1  = Added to buffer successfully
  */
-extern bool UART_write(char* mesg) {
-
+extern bool UART_write(char* mesg)
+{
 	return UART_push_out_len(mesg, strnlen(mesg, UART_TX_BUFFER_SIZE));
 }
 
-extern bool UART_writeLen(char* mesg, int len) {
-
+extern bool UART_writeLen(char* mesg, int len)
+{
 	bool ret = false;
 	if((mesg != NULL) && (len <= UART_TX_BUFFER_SIZE))
 	{
@@ -151,45 +200,84 @@ extern bool UART_writeLen(char* mesg, int len) {
 	return ret;
 }
 
+// This is handling two cases. The interrupt will run if a character is received
+// and when data is moved out from the transmit buffer and the transmit buffer is empty
 static inline void UART_commonInterruptHandler(void)
 {
-	if((UART_config.HWConfig->UARTPeriph->SR & USART_FLAG_RXNE) == USART_FLAG_RXNE) { //If character is received
+	if((UART_config.HWConfig->UARTPeriph->SR & USART_FLAG_RXNE) == USART_FLAG_RXNE) //If character is received
+	{
+		uint8_t tempInput = UART_config.HWConfig->UARTPeriph->DR;
 
-		char tempInput[1];
-		tempInput[0] = UART_config.HWConfig->UARTPeriph->DR;
+		switch(UART_data.RXState)
+		{
+			case UART_RX_STATE_RECEIVE_PAYLOAD_SIZE:
+			{
+				UART_data.RXBuffer.payloadSize = (UART_data.RXBuffer.payloadSize << 8U) | tempInput; // Need to switch endianess
+				UART_data.bytesReceived += 1U;
 
-		//Check for new line character which indicates end of command
-		if (tempInput[0] == '\n' || tempInput[0] == '\r') {
-
-			if(inputStringIndex > 0) {
-				circBuffer2D_push(CIRCBUFFER2D_CHANNEL_UART_RX, inputString, inputStringIndex);
-				memset(inputString, 0, UART_RX_BUFFER_LENGTH);
-				inputStringIndex = 0;
-
-				BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-				vTaskNotifyGiveFromISR(UART_data.taskHandle, &xHigherPriorityTaskWoken);
+				if(inputStringIndex >= 2U)
+				{
+					UART_data.bytesReceived = 0U;
+					UART_data.RXState = UART_RX_STATE_RECEIVE_PAYLOAD;
+				}
+				break;
 			}
+			case UART_RX_STATE_RECEIVE_PAYLOAD:
+			{
+				UART_data.RXBuffer.payload[UART_data.bytesReceived] = tempInput;
+				UART_data.bytesReceived += 1U;
 
-		} else {
-			inputString[inputStringIndex] = tempInput[0];
-			inputStringIndex = (inputStringIndex + 1) % UART_RX_BUFFER_LENGTH;
+				if(UART_data.bytesReceived >= UART_RX_BUFFER_LENGTH)
+				{
+					UART_data.bytesReceived = 0U;
+					UART_data.RXState = UART_RX_STATE_RECEIVE_PAYLOAD_CRC;
+				}
+				break;
+			}
+			case UART_RX_STATE_RECEIVE_PAYLOAD_CRC:
+			{
+				UART_data.RXBuffer.crc = (UART_data.RXBuffer.crc << 8U) | tempInput; // Need to switch endianess
+				UART_data.bytesReceived += 1U;
+
+				if(UART_data.bytesReceived >= 4U)
+				{
+					//Verify CRC
+					UART_data.bytesReceived = 0U;
+
+					// Notify task if CRC okay
+					circBuffer2D_push(CIRCBUFFER2D_CHANNEL_UART_RX, UART_data.RXBuffer.payload, UART_data.RXBuffer.payloadSize);
+					memset(&UART_data.RXBuffer, 0U, sizeof(UART_data.RXBuffer));
+					BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+					vTaskNotifyGiveFromISR(UART_data.taskHandle, &xHigherPriorityTaskWoken);
+
+					UART_data.RXState = UART_RX_STATE_RECEIVE_PAYLOAD_SIZE;
+				}
+				break;
+			}
+			default:
+			{
+				break;
+			}
 		}
-
-	} else if ((UART_config.HWConfig->UARTPeriph->SR & USART_FLAG_TXE) == USART_FLAG_TXE) { // If Transmission is complete
-
+	}
+	else if ((UART_config.HWConfig->UARTPeriph->SR & USART_FLAG_TXE) == USART_FLAG_TXE) // If Transmission is complete
+	{
 		uint8_t dataToSend;
 		if(circBuffer1D_popByte(CIRCBUFFER1D_CHANNEL_UART_TX, &dataToSend))
 		{
 			UART_config.HWConfig->UARTPeriph->DR = dataToSend;
-		} else
+		}
+		else
 		{
 			UART_config.HWConfig->UARTPeriph->CR1 &= ~USART_TXEIE;
 		}
 	}
+	else
+	{
+		// Unexpected interrupt. handle it
+	}
 }
 
-// This is handling two cases. The interrupt will run if a character is received
-// and when data is moved out from the transmit buffer and the transmit buffer is empty
 void USART1_IRQHandler()
 {
 	UART_commonInterruptHandler();

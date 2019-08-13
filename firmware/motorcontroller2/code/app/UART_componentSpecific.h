@@ -32,8 +32,8 @@
 #define UART_RX_BUFFER_LENGTH (45U)
 #define UART_RX_BUFFER_COUNT  (8U)
 
-#define UART_TO_BOARD_MESSAGE_TYPE		motorcontroller2_toBoard_M
-#define UART_TO_BOARD_MESSAGE_FIELDS	motorcontroller2_toBoard_M_fields
+#define UART_TO_BOARD_MESSAGE_TYPE		POLARIS_toBoard_M
+#define UART_TO_BOARD_MESSAGE_FIELDS	POLARIS_toBoard_M_fields
 
 #define UART_FROM_BOARD_MESSAGE_TYPE
 #define UART_FROM_BOARD_MESSAGE_FIELDS
