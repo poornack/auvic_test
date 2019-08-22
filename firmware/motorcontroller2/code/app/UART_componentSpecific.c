@@ -28,11 +28,12 @@ static const UART_HWConfig_S UART_HWConfig =
 static const UART_HWConfig_S UART_HWConfig = 
 {
 	.rxPin = GPIO_PinSource6,
-	.txPin = GPIO_PinSource7,
-	.GPIOPort = GPIOB,
+	.txPin = GPIO_PinSource5,
+	.GPIOPort = GPIOD,
 
-	.UARTPeriph = USART1,
-	.UARTInterruptNumber = USART1_IRQn,
+	.UARTPeriph = USART2,
+	.UARTInterruptNumber = USART2_IRQn,
+	.baudRate = 115200,
 
 	.enablePeripheralsClockCallback = UART_enablePeripheralsClockCallback
 };

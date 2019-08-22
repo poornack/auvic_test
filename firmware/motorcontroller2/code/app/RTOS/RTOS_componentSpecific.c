@@ -21,7 +21,7 @@ void RTOS_init(void)
 	LED_init();
 	circBuffer1D_init();
 	circBuffer2D_init();
-	UART_init();
+	UART_init(); // Creates an RTOS task
 }
 
 void RTOS_run1ms(void)

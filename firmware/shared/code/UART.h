@@ -8,9 +8,7 @@
 #ifndef SIMPLE_UART_H_
 #define SIMPLE_UART_H_
 
-
 #include "UART_componentSpecific.h"
-#include "stm32f4xx.h"
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -23,8 +21,13 @@ typedef struct
 
 	// UART
 	USART_TypeDef * UARTPeriph;
-	uint32_t UARTInterruptNumber;
+	IRQn_Type UARTInterruptNumber;
 	uint32_t baudRate;
+
+	// DMA
+	DMA_Stream_TypeDef * DMAStream;
+	uint32_t DMAChannel;
+	IRQn_Type DMAInterruptNumber;
 
 	//Common
 	void (* enablePeripheralsClockCallback)(void);
@@ -33,13 +36,16 @@ typedef struct
 
 typedef const struct
 {
-	void (* receiveCallback)(UART_TO_BOARD_MESSAGE_TYPE const * const message);
+	void (* receiveCallback)(uint8_t const * const receiveData, const uint8_t receiveDataLength);
 	const UART_HWConfig_S * const HWConfig;
 } UART_config_S;
 
 
 extern void UART_init();
-extern bool UART_push_out(char* mesg);
-extern bool UART_push_out_len(char* mesg, int len);
+extern bool UART_write(char const * const data);
+extern bool UART_writeLen(uint8_t const * const data, const uint8_t dataLength);
+
+// Interrupt
+void UART_DMAInterruptHandler(void);
 
 #endif /* SIMPLE_UART_H_ */
