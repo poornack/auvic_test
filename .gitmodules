@@ -4,3 +4,6 @@
 [submodule "firmware\\libs\\cgreen\\"]
 	path = firmware\\libs\\cgreen\\
 	url = https://github.com/cgreen-devs/cgreen.git
+[submodule "firmware\\libs\\nanopb\\"]
+	path = firmware\\libs\\nanopb\\
+	url = https://github.com/nanopb/nanopb.git
