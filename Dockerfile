@@ -23,5 +23,5 @@ COPY firmware/libs/nanopb /root/build_tools/nanopb
 
 WORKDIR /root/firmware
 
-CMD ["echo", "running"]
+CMD ["make", "all"]
 

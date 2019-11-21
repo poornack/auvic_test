@@ -1,8 +1,10 @@
 
 PROTO_FILE_DIR=$(REPO_ROOT)/shared/data/protobuf
 GENERATED_PROTO_DIR=$(OUTPUT_DIR)/generated/protobuf
-NANOPB_LIB_DIR=$(REPO_ROOT)/libs/nanopb/nanopb-0.3.9.3-windows-x86
-NANOPB_COMPILER=$(NANOPB_LIB_DIR)/generator-bin/protoc
+NANOPB_LIB_DIR=$(REPO_ROOT)/libs/nanopb
+#NANOPB_COMPILER=$(NANOPB_LIB_DIR)/generator-bin/protoc
+NANOPB_COMPILER=protoc
+NANOPB_GENERATOR=$(REPO_ROOT)/libs/nanopb/generator/protoc-gen-nanopb
 
 PROTO_OBJS += \
 $(OUTPUT_DIR)/obj/protobuf/POLARIS.pb.o \
@@ -27,7 +29,7 @@ ARM_TOOLS_COMPILER_FLAGS := \
 #Generate source and header files
 $(OUTPUT_DIR)/generated/protobuf/%.pb.c $(OUTPUT_DIR)/generated/protobuf/%.pb.h: $(PROTO_FILE_DIR)/%.proto
 	@echo 'Generating probuf files'
-	$(NANOPB_COMPILER) -I=$(PROTO_FILE_DIR) --nanopb_out=$(GENERATED_PROTO_DIR) $<
+	$(NANOPB_COMPILER) --plugin=protoc-gen-nanopb=$(NANOPB_GENERATOR) -I=$(PROTO_FILE_DIR) --nanopb_out=$(GENERATED_PROTO_DIR) $<
 
 #Build object file from generated c file
 $(OUTPUT_DIR)/obj/protobuf/%.pb.o: $(OUTPUT_DIR)/generated/protobuf/%.pb.c
