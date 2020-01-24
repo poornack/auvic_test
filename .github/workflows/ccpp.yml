@@ -12,9 +12,7 @@ jobs:
     
     - name: Setup
       run: |
-        sudo apt-get update
-        sudo apt-get -y install \
-        gcc-arm-none-eabi
+        ./provision.sh
         
         apt-cache policy gcc-arm-none-eabi
         
