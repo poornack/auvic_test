@@ -26,6 +26,10 @@ help:
 	@echo Component: powerboard1
 	@echo       Available TARGET options: app, bootloader
 
+test:
+	$(MAKE) -C shared/test test
+	$(MAKE) -C motorcontroller2/test test
+
 
 sandbox:
 	@echo SANDBOX

@@ -20,5 +20,6 @@ jobs:
       run: |
         cd firmware
         make all
+	make test
 
 
