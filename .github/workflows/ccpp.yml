@@ -8,7 +8,9 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-    - name: make
-      run: make all
+    - name: Build all firmware
+      run: |
+        cd firmware
+        make all
 
 
