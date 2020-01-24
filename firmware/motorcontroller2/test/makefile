@@ -18,4 +18,7 @@ $(OUTPUT_DIR)/mc_test: $(TEST_OBJS)
 test: $(OUTPUT_DIR)/mc_test
 	./$(OUTPUT_DIR)/mc_test
 
+clean:
+	rm -rf $(OUTPUT_DIR)
+
 #-include $(TEST_C_DEPS)
