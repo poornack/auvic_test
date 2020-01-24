@@ -28,7 +28,7 @@ INCLUDE_PATH+= \
 
 -include STMLib.mk
 -include FreeRTOSlib.mk
--include protobuf.mk
+#-include protobuf.mk
 -include app.mk
 -include appStartup.mk
 -include bootloader.mk
